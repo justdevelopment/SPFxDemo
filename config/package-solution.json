@@ -1,0 +1,16 @@
+{
+    "$schema": "https://dev.office.com/json-schemas/spfx-build/package-solution.schema.json",
+    "solution": {
+        "name": "spfx-demo",
+        "id": "18080244-2c27-4109-b5eb-96e0fe5d6312",
+        "version": "1.0.0.0",
+        "includeClientSideAssets": true,
+        "webApiPermissionRequests": [{
+            "resource": "Microsoft Graph",
+            "scope": "Calendars.Read"
+        }]
+    },
+    "paths": {
+        "zippedPackage": "solution/spfx-demo.sppkg"
+    }
+}
