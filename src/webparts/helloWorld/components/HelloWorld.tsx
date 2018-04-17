@@ -16,7 +16,7 @@ export interface ICalendarEvent {
 }
 
 export default class HelloWorld extends React.Component<IHelloWorldProps, IHelloWorldState> {
-
+  private client: MSGraphClient;
   constructor(props: IHelloWorldProps) {
     super(props);
 
@@ -27,39 +27,60 @@ export default class HelloWorld extends React.Component<IHelloWorldProps, IHello
 
 
   public componentDidMount() {
-    this.getEvents(10).then(
-      //resolve
-      (apps: ICalendarEvent[]) => {
-        this.setState({
-          items: apps,
-          isErrorOccured: false,
-          isLoading: false
+    let sem = null;
+    if ((window as any).HelloWorldWP && (window as any).HelloWorldWP.MSGraphClientSemaphore) {
+      sem = (window as any).HelloWorldWP.MSGraphClientSemaphore;
+    }
+    else {
+      sem = require('./Semaphore.js')(1);
+      (window as any).HelloWorldWP = {
+        MSGraphClientSemaphore: sem
+      };
+    }
+
+    sem.take(function () {
+      // Get graph client from context, this was added in SPFx 1.4.1
+      // With the removal of the popup (around April 10th) it's causing race conditions when there are multiple webparts on the page which call the MSGraphClient
+      // To work around this we've added a semaphore so only one client can be fetched at a time
+      // After the first fetch, the token is cached and other webparts can get it from there correctly.
+
+        this.client = this.props.context.serviceScope.consume(MSGraphClient.serviceKey);
+        // We need to fetch our items as well, the client will apparently only login when an actual call is made.
+        // Calling _getOAuthToken ourselves doesn't work without rewriting everything, don't want to do that.
+        this.getEvents(10).then(
+          //resolve
+          (apps: ICalendarEvent[]) => {
+            sem.leave();
+            this.setState({
+              items: apps,
+              isErrorOccured: false,
+              isLoading: false
+            });
+          },
+          //reject
+          (data: any) => {
+            sem.leave();
+            this.setState({
+              items: [],
+              isLoading: false,
+              isErrorOccured: true,
+              errorMessage: "Something went wrong; " + data
+            });
+          }
+        ).catch((ex) => {
+          sem.leave();
+          this.setState({
+            items: [],
+            isLoading: false,
+            isErrorOccured: true,
+            errorMessage: "Something went wrong; " + ex
+          });
         });
-      },
-      //reject
-      (data: any) => {
-        console.log(data);
-        this.setState({
-          items: [],
-          isLoading: false,
-          isErrorOccured: true,
-          errorMessage: "Something went wrong; " + data
-        });
-      }
-    ).catch((ex) => {
-      console.log(ex);
-      this.setState({
-        items: [],
-        isLoading: false,
-        isErrorOccured: true,
-        errorMessage: "Something went wrong; " + ex
-      });
-    });
+    }.bind(this));
   }
 
+
   public getEvents(maxAmountOfItems: number): Promise<ICalendarEvent[]> {
-    // get graph client from context, this was added in SPFx 1.4.1
-    const client: MSGraphClient = this.props.context.serviceScope.consume(MSGraphClient.serviceKey);
     const today = new Date();
     const nextYear = new Date();
     nextYear.setHours(0, 0, 0, 0);
@@ -67,7 +88,7 @@ export default class HelloWorld extends React.Component<IHelloWorldProps, IHello
 
     return new Promise<ICalendarEvent[]>((resolve) => {
       // Call Graph for my upcoming events
-      client
+      this.client
         .api('/me/calendarview?startdatetime=' + today.toISOString() + '&enddatetime=' + nextYear.toISOString())
         .version("v1.0") // use graph
         .select("subject,webLink,onlineMeetingUrl,location,start,end,isAllDay")
@@ -117,13 +138,13 @@ export default class HelloWorld extends React.Component<IHelloWorldProps, IHello
     return (
       <div className={styles.helloWorld}>
         <div className={styles.container}>
-        <List
-              items={this.state.items}
-              renderCount={this.state.items.length}
-              onRenderCell={(item, index) => (
-                  <div>{item.Title} : {new Date(item.StartDate).toLocaleString()} - {new Date(item.EndDate).toLocaleString()}</div>
-              )}
-            />
+          <List
+            items={this.state.items}
+            renderCount={this.state.items.length}
+            onRenderCell={(item, index) => (
+              <div>{item.Title} : {new Date(item.StartDate).toLocaleString()} - {new Date(item.EndDate).toLocaleString()}</div>
+            )}
+          />
         </div>
       </div>
     );
